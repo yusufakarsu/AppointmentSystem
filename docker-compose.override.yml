@@ -1,0 +1,18 @@
+version: "3.8"
+
+services:
+  database:
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=mypassword123!
+      - POSTGRES_DB=coding-challenge
+    deploy:
+      restart_policy:
+        condition: on-failure
+
+  appointmentsystem.api:
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+    deploy:
+      restart_policy:
+        condition: on-failure

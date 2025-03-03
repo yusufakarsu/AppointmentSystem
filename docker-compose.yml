@@ -1,0 +1,46 @@
+version: "3.8"
+
+services:
+  database:
+    container_name: enpal-coding-challenge-db
+    image: postgres:16
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: mypassword123!
+      POSTGRES_DB: coding-challenge
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+    command: >
+      bash -c "if [ ! -f /var/lib/postgresql/data/PG_VERSION ]; then
+      echo 'Initializing database...';
+      docker-entrypoint.sh postgres;
+      else
+      echo 'Database already initialized, skipping init';
+      exec postgres;
+      fi"
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres"]
+      interval: 10s
+      retries: 5
+
+  appointmentsystem.api:
+    container_name: appointment-api
+    build:
+      context: .
+      dockerfile: AppointmentSystem.Api/Dockerfile
+    environment:
+      - ConnectionStrings__DefaultConnection=Host=database;Port=5432;Database=coding-challenge;Username=postgres;Password=mypassword123!
+      - ASPNETCORE_URLS=http://+:3000
+      - ASPNETCORE_ENVIRONMENT=Development
+    ports:
+      - "3000:3000"
+    depends_on:
+      database:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
