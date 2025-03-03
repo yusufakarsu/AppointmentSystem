@@ -1,166 +1,246 @@
 # **Appointment System API**
 
-## **Overview**
-This project is an **appointment scheduling system** that enables customers to book time slots with sales managers based on **availability, language, products, and customer ratings**. 
+## **📌 Overview**
+The **Appointment System API** is designed to handle **customer appointment scheduling** efficiently. Customers can book available time slots with sales managers based on:
+- **Availability**
+- **Language preferences**
+- **Products offered**
+- **Customer rating compatibility**
 
-The system is **built from scratch** using **ASP.NET Core, Entity Framework Core**, and follows a **modular architecture** with repositories, services, and controllers.
+### **🚀 Tech Stack**
+- **ASP.NET Core** (Web API Framework)
+- **Entity Framework Core** (ORM for database operations)
+- **PostgreSQL** (Database)
+- **Docker & Docker Compose** (Containerization & Deployment)
+- **NUnit & Moq** (Unit Testing)
 
 ---
 
-## **1. Project Architecture**
+## **🔧 Project Structure**
+This project follows a **layered architecture** ensuring scalability, maintainability, and separation of concerns.
 
-### **1.1. Technology Stack**
-- **Backend:** ASP.NET Core 8.0
-- **Database:** PostgreSQL (via Docker)
-- **ORM:** Entity Framework Core
-- **Logging:** Built-in `ILogger<T>`
-- **Testing:** NUnit & Moq
-- **Containerization:** Docker & Docker Compose
-
-### **1.2. Project Structure**
 ```
-📂 AppointmentSystem.Api (Main API)
-   ├── Controllers
-   ├── Startup.cs
-📂 AppointmentSystem.Business (Services & Logic)
-   ├── Services
-   ├── Extensions
-📂 AppointmentSystem.Data (Database & Entities)
-   ├── DbContext
-   ├── Repositories
-   ├── Interfaces
-📂 AppointmentSystem.Models (DTOs)
+📂 AppointmentSystem.Api (API Layer)
+   ├── Controllers/ (Handles HTTP requests)
+   ├── Program.cs
+📂 AppointmentSystem.Business (Business Logic Layer)
+   ├── Services/ (Handles application logic)
+   ├── Extensions/ (Helper methods)
+📂 AppointmentSystem.Data (Data Access Layer)
+   ├── DbContext/ (Database context)
+   ├── Repositories/ (Data fetching logic)
+   ├── Interfaces/ (Repository contracts)
+📂 AppointmentSystem.Models (DTOs - Data Transfer Objects)
 📂 AppointmentSystem.Tests (Unit Tests - NUnit & Moq)
 ```
 
 ---
 
-## **2. Key Features**
+## **🔥 Features & Implementation Details**
 
-✅ **Sales Managers & Slots Relationship**: Defined with proper foreign key constraints.  
-✅ **Efficient Slot Filtering**: Checks for overlapping booked slots to prevent double-booking.  
-✅ **Service Layer Abstraction**: Clean separation of concerns using services and repositories.  
-✅ **Validation & Error Handling**: Ensures proper request validation and structured error messages.  
-✅ **Unit Tests with NUnit & Moq**: Verifies API behavior with service mock testing.  
-✅ **Docker & Docker Compose Support**: Includes PostgreSQL database initialization.  
+### **1️⃣ Database Schema & Entity Relationships**
+- **SalesManager** and **Slot** entities are structured with a **one-to-many relationship**.
+- The **`Slots`** navigation property is included inside **SalesManager** for better **query performance**.
 
----
-
-## **3. API Endpoints**
-
-### **3.1. Get Available Appointment Slots**
-#### **Request**
-```http
-POST /calendar/query
-Content-Type: application/json
-```
-```json
+```csharp
+public class SalesManager
 {
-  "date": "2024-05-03",
-  "language": "English",
-  "products": ["SolarPanels"],
-  "rating": "Gold"
-}
-```
-#### **Response (200 OK)**
-```json
-[
-  {
-    "start_date": "2024-05-03T10:00:00Z",
-    "available_count": 3
-  },
-  {
-    "start_date": "2024-05-03T11:00:00Z",
-    "available_count": 2
-  }
-]
-```
-#### **Response (400 Bad Request)**
-```json
-{
-  "message": "Date is required."
+    [Key]
+    public int Id { get; set; }
+    public string Name { get; set; }
+
+    // List of available slots
+    public virtual List<Slot> Slots { get; set; } = new();
 }
 ```
 
+```csharp
+public class Slot
+{
+    [Key]
+    public int Id { get; set; }
+
+    [ForeignKey(nameof(SalesManager))]
+    public int SalesManagerId { get; set; }
+    public virtual SalesManager SalesManager { get; set; }
+}
+```
+
+✅ **Result:** The system **retrieves managers and their slots in a single query** instead of multiple database calls.
+
 ---
 
-## **4. Database Configuration & Docker Setup**
+### **2️⃣ Repository Layer Implementation**
+The repository pattern is used to **abstract database operations**.
 
-### **4.1. Docker Compose Setup**
-The system is configured to run PostgreSQL as a container.
+```csharp
+public async Task<List<SalesManager>> GetSalesManagersWithSlotsAsync()
+{
+    return await _context.SalesManagers
+        .Include(sm => sm.Slots)
+        .AsNoTracking()
+        .ToListAsync();
+}
+```
+✅ **Result:** **Efficient data fetching**, reducing unnecessary database queries.
 
-#### **docker-compose.yml**
+---
+
+### **3️⃣ Business Logic Implementation**
+The **service layer** processes and filters data before returning results.
+
+```csharp
+public async Task<List<AvailableTimeSlotDto>> GetAvailableSlotsAsync(AppointmentRequestDto request)
+{
+    var salesManagers = await _repository.GetSalesManagersWithSlotsAsync();
+    var matchingManagers = salesManagers.Where(m => 
+        m.Languages.Contains(request.Language) &&
+        m.Products.Contains(request.Products) &&
+        m.CustomerRatings.Contains(request.Rating)).ToList();
+
+    var availableSlots = matchingManagers.SelectMany(m => m.Slots).Where(s => !s.Booked).ToList();
+
+    return availableSlots.Select(s => new AvailableTimeSlotDto 
+    {
+        StartDate = s.StartDate,
+        AvailableCount = 1 // Each slot is available
+    }).ToList();
+}
+```
+✅ **Result:** **Filters managers based on language, product, and rating, then retrieves available slots**.
+
+---
+
+### **4️⃣ Overlap Checking via Extension Methods**
+The **`SlotExtensions`** helper class improves code **reusability**.
+
+```csharp
+public static class SlotExtensions
+{
+    public static bool OverlapWith(this Slot slot, Slot other)
+    {
+        return slot.SalesManagerId == other.SalesManagerId &&
+               slot.StartDate < other.EndDate &&
+               slot.EndDate > other.StartDate;
+    }
+}
+```
+
+✅ **Result:** The system **detects and removes overlapping slots** dynamically.
+
+---
+
+### **5️⃣ Exception Handling**
+The **CalendarController** now gracefully handles **unexpected errors**.
+
+```csharp
+try
+{
+    var availableSlots = await _appointmentService.GetAvailableSlotsAsync(request);
+    return Ok(availableSlots);
+}
+catch (Exception ex)
+{
+    _logger.LogError(ex, "An unexpected error occurred.");
+    return StatusCode(500, new { message = "An unexpected error occurred. Please try again later." });
+}
+```
+✅ **Result:** The system **returns a structured error message instead of crashing**.
+
+---
+
+## **🐳 Docker-Based Deployment**
+I **containerized** the project using **Docker Compose** for **easy deployment**.
+
+### **1️⃣ PostgreSQL Database Setup**
+The **PostgreSQL 16** database container initializes automatically.
+
 ```yaml
-version: "3.8"
-
 services:
   database:
-    container_name: enpal-coding-challenge-db
     image: postgres:16
-    restart: always
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: mypassword123!
       POSTGRES_DB: coding-challenge
     ports:
       - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
-
-  appointmentsystem.api:
-    container_name: appointment-api
-    build:
-      context: .
-      dockerfile: AppointmentSystem.Api/Dockerfile
-    environment:
-      - ConnectionStrings__DefaultConnection=Host=database;Port=5432;Database=coding-challenge;Username=postgres;Password=mypassword123!
-      - ASPNETCORE_URLS=http://+:3000
-      - ASPNETCORE_ENVIRONMENT=Development
-    ports:
-      - "3000:3000"
-    depends_on:
-      database:
-        condition: service_healthy
-
-volumes:
-  postgres_data:
 ```
 
-### **4.2. Running the Project**
+---
+
+### **2️⃣ Preventing Duplicate Initialization**
+A **custom command** ensures the database does **not reset** on every restart.
+
+```yaml
+command: >
+  bash -c "if [ ! -f /var/lib/postgresql/data/PG_VERSION ]; then
+  echo 'Initializing database...';
+  docker-entrypoint.sh postgres;
+  else
+  echo 'Database already initialized, skipping init';
+  exec postgres;
+  fi"
+```
+
+✅ **Ensures database persistence** and **prevents accidental resets**.
+
+---
+
+### **3️⃣ Automatic SQL Initialization**
+A **SQL script initializes the database** only on first startup.
+
+```yaml
+volumes:
+  - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+```
+
+✅ **Ensures required tables exist before API starts.**
+
+---
+
+### **4️⃣ API Waits for Database Readiness**
+A **health check ensures** the API does **not start before the database is ready**.
+
+```yaml
+depends_on:
+  database:
+    condition: service_healthy
+
+healthcheck:
+  test: ["CMD", "pg_isready", "-U", "postgres"]
+  interval: 10s
+  retries: 5
+```
+✅ **Prevents API crashes due to missing database connections**.
+
+---
+
+## **🚀 Running the System**
+### **Start the System**
 ```sh
-# Start the application with Docker Compose
 docker-compose up --build
 ```
+📌 **This will:**
+- Start PostgreSQL
+- Initialize tables
+- Launch the API on **http://localhost:3000**
 
 ---
 
-## **5. Running Unit Tests**
-
-To run the NUnit tests:
+### **Stopping the System**
 ```sh
-# In Visual Studio Test Explorer
-Run Tests
-
-# Or use .NET CLI
-cd AppointmentSystem.Tests
-
-# Run tests
-dotnet test
+docker-compose down
 ```
+✅ **Stops all services and preserves data.**
 
 ---
 
-## **📌 Summary**
-🚀 **This project was built from scratch** to provide an optimized appointment booking system with proper validation, clean architecture, and robust testing.  
+## **📌 Final Summary**
+✅ **SalesManagers and Slots loaded in a single query**  
+✅ **Overlap checking refactored into `SlotExtensions`**  
+✅ **Improved error handling with proper status codes**  
+✅ **Robust unit tests for API behavior validation**  
+✅ **Fully Dockerized Deployment with PostgreSQL**  
 
-**Key Benefits:**  
-✅ **Well-structured codebase** using services & repositories  
-✅ **Optimized database queries** for performance  
-✅ **Unit tests** to ensure API reliability  
-✅ **Dockerized environment** for easy deployment  
-
----
-
-🔗 **GitHub Repository:** *Add GitHub link here*  
-📌 **Author:** Yusuf Akarsu
+🔥 **This project is optimized for performance, maintainability, and scalability.** 🚀  
